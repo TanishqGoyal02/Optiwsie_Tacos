@@ -18,10 +18,10 @@ logging.basicConfig(
     ]
 )
 
-# if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
-#     with open("gcp_creds.json", "w") as f:
-#         f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
-#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
+if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
+    with open("gcp_creds.json", "w") as f:
+        f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
 # Initialize conversation store
 conversation_store = ConversationStore()
 
