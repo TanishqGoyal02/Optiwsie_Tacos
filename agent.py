@@ -189,9 +189,9 @@ def get_agent_response(db_path: str, user_query: str, thread_id: str): # Added t
         logging.info(f"🧠 Gemini agent processing completed in {agent_processing_time:.3f}s")
 
         for message in response_messages["messages"]:
-            message.pretty_print()
-            print("\n")
-
+            #message.pretty_print()
+            # print('/n')
+            logging.info(message.pretty_print())
         
         # The agent's response is the last message in the list of messages
         if response_messages and "messages" in response_messages and response_messages["messages"]:
