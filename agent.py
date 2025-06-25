@@ -9,6 +9,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver # Added for memory
 from database import query_db, get_db_schema
 from dotenv import load_dotenv
+from shared_state import shared_state
 
 # Configure logging to output to console/terminal
 logging.basicConfig(
@@ -179,49 +180,64 @@ def get_agent_response(db_path: str, user_query: str, thread_id: str): # Added t
         agent_invoke_start = time.time()
         logging.info(f"🤖 Starting Gemini agent processing...")
         
-        response_messages = agent_executor.invoke(
+        for token, metadata in agent_executor.stream(
             {"messages": [HumanMessage(content=user_query)]}, # Use HumanMessage
-            config
-        )
+            config,
+            stream_mode = "messages",
+        ):
+            if metadata["langgraph_node"] == "agent":
+                # Capture agent response
+                shared_state.append_response(token.content)
+                yield token.content
+            elif metadata["langgraph_node"] == "tools":
+                # Stop capturing and clear previous response when tools are called
+                shared_state.set_capture(False)
+                shared_state.clear_response()
+                yield "Querying database...../n"
+                # Resume capturing after tool execution
+                shared_state.set_capture(True)
+            else:
+                # Capture other responses
+                shared_state.append_response(token.content)
+                yield token.content
         
         agent_invoke_end = time.time()
         agent_processing_time = agent_invoke_end - agent_invoke_start
         logging.info(f"🧠 Gemini agent processing completed in {agent_processing_time:.3f}s")
 
-        for message in response_messages["messages"]:
-            # message.pretty_print()
-            # print('/n')
-            logging.info(message.pretty_print())
+        # for message in response_messages["messages"]:
+        #     # message.pretty_print()
+        #     # print('/n')
+        #     logging.info(message.pretty_print())
         
         # The agent's response is the last message in the list of messages
-        if response_messages and "messages" in response_messages and response_messages["messages"]:
-            last_message = response_messages["messages"][-1]
-            # Ensure it's an AI response and has content
-            if hasattr(last_message, 'role') and (last_message.role.lower() == 'ai' or last_message.role.lower() == 'assistant') and hasattr(last_message, 'content'):
-                response_content = last_message.content
-            elif isinstance(last_message, dict) and last_message.get("role", "").lower() in ['ai', 'assistant'] and "content" in last_message: # If it's a dict
-                response_content = last_message["content"]
-            # Fallback if the last message isn't structured as expected but has content
-            elif hasattr(last_message, 'content'):
-                response_content = last_message.content
-            else:
-                response_content = "Sorry, I couldn't get a valid response from the agent."
-        else:
-            response_content = "Sorry, I couldn't get a valid response from the agent."
+        # if response_messages and "messages" in response_messages and response_messages["messages"]:
+        #     last_message = response_messages["messages"][-1]
+        #     # Ensure it's an AI response and has content
+        #     if hasattr(last_message, 'role') and (last_message.role.lower() == 'ai' or last_message.role.lower() == 'assistant') and hasattr(last_message, 'content'):
+        #         response_content = last_message.content
+        #     elif isinstance(last_message, dict) and last_message.get("role", "").lower() in ['ai', 'assistant'] and "content" in last_message: # If it's a dict
+        #         response_content = last_message["content"]
+        #     # Fallback if the last message isn't structured as expected but has content
+        #     elif hasattr(last_message, 'content'):
+        #         response_content = last_message.content
+        #     else:
+        #         response_content = "Sorry, I couldn't get a valid response from the agent."
+        # else:
+        #     response_content = "Sorry, I couldn't get a valid response from the agent."
             
         end_time = time.time()
         total_time = end_time - start_time
         
         # Detailed timing breakdown
-        logging.info(f"Gemini: {agent_processing_time:.3f}s | Response: {len(response_content)} chars | Thread: {thread_id[:8]}")
+        #logging.info(f"Gemini: {agent_processing_time:.3f}s | Response: {len(response_content)} chars | Thread: {thread_id[:8]}")
         logging.info("========================================================================================")
         
-        return response_content
         
     except Exception as e:
-        end_time = time.time()
-        total_time = end_time - start_time
-        logging.error(f"❌ Agent error after {total_time:.3f}s | Query: '{user_query[:50]}...' | Error: {str(e)}")
+        # end_time = time.time()
+        # total_time = end_time - start_time
+        # logging.error(f"❌ Agent error after {total_time:.3f}s | Query: '{user_query[:50]}...' | Error: {str(e)}")
         raise e
 
 # (Keep the __main__ block commented out or remove if not needed for direct testing of this file)

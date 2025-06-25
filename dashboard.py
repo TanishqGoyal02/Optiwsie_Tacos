@@ -7,6 +7,7 @@ import logging
 from database import create_db_from_excel, query_db
 from agent import get_agent_response
 from conversation_store import ConversationStore
+from shared_state import shared_state
 import uuid
 
 # Configure logging for dashboard to output to console/terminal
@@ -18,18 +19,50 @@ logging.basicConfig(
     ]
 )
 
-if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
-    with open("gcp_creds.json", "w") as f:
-        f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
+# Constants
+ASSISTANT_AVATAR = "https://app.optiwise.ai/assets/olivia-IF0pvoa5.png"
+OPTIWISE_LOGO = "https://www.optiwise.ai/wp-content/uploads/2022/10/optiwise_logo_Color.png"
+
+# if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
+#     with open("gcp_creds.json", "w") as f:
+#         f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
+#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
+
 # Initialize conversation store
 conversation_store = ConversationStore()
 
+def display_chat_message(message, is_assistant=False):
+    """Helper function to display chat messages consistently"""
+    if is_assistant:
+        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+            st.markdown(message["content"])
+    else:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+def save_and_display_response(response, thread_id, db_path, response_time):
+    """Helper function to save and display assistant response"""
+    # Display assistant response
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        st.markdown(response)
+    
+    # Add to session state
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    
+    # Save to conversation store
+    conversation_store.save_message(
+        thread_id,
+        "assistant",
+        response,
+        db_path,
+        metadata={"db_path": db_path, "response_time_seconds": response_time}
+    )
+
 # Improved logo and title alignment with public logo URL
-st.markdown("""
+st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 2.5rem; margin-bottom: 1.5rem;">
         <div style="background-color: white; padding: 0.75rem; border-radius: 12px; box-shadow: 0 2px 8px #0002;">
-            <img src="https://www.optiwise.ai/wp-content/uploads/2022/10/optiwise_logo_Color.png" alt="Optiwise Logo" style="height: 90px; display: block;">
+            <img src="{OPTIWISE_LOGO}" alt="Optiwise Logo" style="height: 90px; display: block;">
         </div>
         <div>
             <h1 style='margin-bottom:0; color:#FFFFFF; font-size:2.6rem; font-weight:800; letter-spacing:-1px;'>Optiwise Tacos AI Agent</h1>
@@ -37,8 +70,6 @@ st.markdown("""
         </div>
     </div>
 """, unsafe_allow_html=True)
-
-
 
 # File uploader
 st.markdown("""
@@ -69,7 +100,6 @@ if uploaded_file is not None:
         if "messages" not in st.session_state:
             st.session_state.messages = []
 
-
         # Initialize a new thread_id for a new file upload/session
         if "thread_id" not in st.session_state:
             st.session_state.thread_id = str(uuid.uuid4())
@@ -82,20 +112,10 @@ if uploaded_file is not None:
                 "Conversation started.",
                 db_path
             )
-            
-            # Load any existing conversation history
-            # history = conversation_store.get_conversation_history(st.session_state.thread_id, db_path)
-            # if history:
-            #     st.session_state.messages = history
 
         # Display chat messages from history on app rerun
         for message in st.session_state.messages:
-            if message["role"] == "assistant":
-                with st.chat_message("assistant", avatar="https://app.optiwise.ai/assets/olivia-IF0pvoa5.png"):
-                    st.markdown(message["content"])
-            else:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
+            display_chat_message(message, is_assistant=(message["role"] == "assistant"))
 
         # Add sidebar with popular questions
         with st.sidebar:
@@ -112,6 +132,7 @@ if uploaded_file is not None:
 
         user_input = st.chat_input("Ask anything about your Tacos report:")
         prompt = selected_question or user_input
+        
         # React to user input
         if prompt:
             # Display user message in chat message container
@@ -132,27 +153,28 @@ if uploaded_file is not None:
             try:
                 dashboard_start_time = time.time()
                 
-                response = get_agent_response(db_path, prompt, st.session_state.thread_id)
+                # Clear any previous response in shared state
+                shared_state.clear_response()
+                shared_state.set_capture(True)
+                
+                # Show animated spinner while Olivia is thinking
+                with st.spinner("Olivia is thinking..."):
+                    # Create an expander for the streaming response
+                    with st.expander("Olivia is thinking... (Click to watch live response generation)", expanded=False):
+                        response = st.write_stream(get_agent_response(db_path, prompt, st.session_state.thread_id))
+                
+                # Get the final captured response from shared state
+                final_response = shared_state.get_response()
                 
                 dashboard_end_time = time.time()
                 dashboard_total_time = dashboard_end_time - dashboard_start_time
+
+                print("Final captured response:", final_response)
                 
-                # Display assistant response in chat message container
-                with st.chat_message("assistant", avatar="https://app.optiwise.ai/assets/olivia-IF0pvoa5.png"):
-                    st.markdown(response)
-                # Add assistant response to chat history
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                # Save and display the final captured response
+                save_and_display_response(final_response, st.session_state.thread_id, db_path, dashboard_total_time)
                 
-                # Save assistant response to conversation store
-                conversation_store.save_message(
-                    st.session_state.thread_id,
-                    "assistant",
-                    response,
-                    db_path,
-                    metadata={"db_path": db_path, "response_time_seconds": dashboard_total_time}
-                )
-                
-                # Display timing info in sidebar for debugging (you can remove this later)
+                # Display timing info in sidebar for debugging
                 with st.sidebar:
                     st.write(f"⏱️ Response time: {dashboard_total_time:.2f}s")
                     
@@ -162,29 +184,13 @@ if uploaded_file is not None:
                 logging.error(f"Dashboard error after {dashboard_total_time:.2f}s: {e}")
                 st.error(f"Error getting response from agent: {e}")
 
-        #Testing conversation history
-        # with st.sidebar:
-        #     st.header(":blue[Conversation History]")
-        #     conversations = conversation_store.get_all_conversations()
-        #     if conversations:
-        #         st.write(":green[Recent conversations:]")
-        #         for conv in conversations:
-        #             thread_id, db_path, created_at, msg_count, last_msg = conv
-        #             st.write(f"**Thread:** `{thread_id[:8]}...`  ")
-        #             st.write(f"Messages: {msg_count}")
-        #             st.write(f"Last message: {last_msg}")
-        #             st.write("---")
-        #     else:
-        #         st.write(":gray[No conversation history yet.]")
-
     except Exception as e:
         st.error(f"Error processing Excel file: {e}")
     finally:
         # Clean up temporary files
         if os.path.exists("temp_excel.xlsx"):
             os.remove("temp_excel.xlsx")
-        # if os.path.exists(db_path): # Keep the DB for the session or remove if not needed
-        #     os.remove(db_path)
+            
 else:
     st.markdown("""
         <div style='background: #dbeafe; color: #111; padding: 1.2rem 1.5rem; border-radius: 16px; font-size: 1.18rem; font-weight: 500; text-align: left; width: fit-content; min-width: 350px;'>
