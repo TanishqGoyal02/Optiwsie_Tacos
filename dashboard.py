@@ -23,10 +23,10 @@ logging.basicConfig(
 ASSISTANT_AVATAR = "https://app.optiwise.ai/assets/olivia-IF0pvoa5.png"
 OPTIWISE_LOGO = "https://www.optiwise.ai/wp-content/uploads/2022/10/optiwise_logo_Color.png"
 
-# if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
-#     with open("gcp_creds.json", "w") as f:
-#         f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
-#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
+if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
+    with open("gcp_creds.json", "w") as f:
+        f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
 
     
 
