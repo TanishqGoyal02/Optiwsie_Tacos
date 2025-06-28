@@ -22,6 +22,44 @@ def detect_header_row(path, sheet_name, expected_keywords, min_matches=2):
 
     raise ValueError(f"❌ Header row not found in sheet '{sheet_name}' — expected keywords not matched.")
 
+def process_sheet_with_hyperlinks(path, sheet_name, header_index=None):
+    """
+    Process Excel sheet using openpyxl iteration and handle hyperlinks.
+    Returns DataFrame with processed data.
+    """
+    wb = load_workbook(path, read_only=True)
+    ws = wb[sheet_name]
+    
+    rows = []
+    for row in ws.iter_rows():
+        row_data = []
+        for cell in row:
+            val = cell.value
+            if isinstance(val, str) and val.startswith("=HYPERLINK("):
+                # Extract the display text: second argument
+                inside = val[len("=HYPERLINK("):-1]  # remove =HYPERLINK( and ending )
+                parts = inside.split(",", 1)
+                if len(parts) == 2:
+                    display = parts[1].strip().strip('"')
+                    row_data.append(display)
+                else:
+                    row_data.append(val)
+            else:
+                row_data.append(val)
+        rows.append(row_data)
+    
+    wb.close()
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(rows)
+    
+    # Handle header if specified
+    if header_index is not None and len(df) > header_index:
+        df.columns = df.iloc[header_index]
+        df = df.iloc[header_index + 1:].reset_index(drop=True)
+    
+    return df
+
 def create_db_from_excel(excel_path, db_path):
     """
     Reads an Excel file and creates a SQLite database from its sheets.
@@ -45,28 +83,19 @@ def create_db_from_excel(excel_path, db_path):
             # By Item IDs
             elif "by item ids" in sheet_name_lower:
                 header_index = detect_header_row(excel_path, sheet_name, ["Item ID", "Product Name", "SKU"])
-                df = pd.read_excel(excel_path, sheet_name=sheet_name, header=header_index)
-
-                # Process first two columns for HYPERLINKs
-                df.iloc[:, 0:2] = df.iloc[:, 0:2].astype(str)
-                hyperlink_pattern = r'=HYPERLINK\s*\(\s*"[^"]*"\s*,\s*"([^"]*)"\s*\)'
-                for col in df.columns[:2]:
-                    df[col] = df[col].apply(lambda x: 
-                        re.search(hyperlink_pattern, str(x)).group(1) 
-                        if isinstance(x, str) and re.search(hyperlink_pattern, str(x)) 
-                        else x)
+                df = process_sheet_with_hyperlinks(excel_path, sheet_name, header_index)
                 print(f"Processed table '{sheet_name}' with hyperlink extraction")
 
             # By Keywords
             elif "by keywords" in sheet_name_lower:
                 header_index = detect_header_row(excel_path, sheet_name, ["Keyword"], min_matches=1)
-                df = pd.read_excel(excel_path, sheet_name=sheet_name, header=header_index)
+                df = process_sheet_with_hyperlinks(excel_path, sheet_name, header_index)
                 print(f"Processing keyword table '{sheet_name}'")
 
             # Trend - Period
             elif "trend - period" in sheet_name_lower:
                 header_index = detect_header_row(excel_path, sheet_name, ["Item Id", "Product Name", "SKU"])
-                df_all = pd.read_excel(excel_path, sheet_name=sheet_name, header=None)
+                df_all = process_sheet_with_hyperlinks(excel_path, sheet_name, None)
 
                 if len(df_all) >= header_index + 1:
                     top_row = df_all.iloc[0].replace({np.nan: None, 'NaN': None})

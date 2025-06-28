@@ -28,6 +28,8 @@ if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
         f.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp_creds.json"
 
+    
+
 # Initialize conversation store
 conversation_store = ConversationStore()
 
